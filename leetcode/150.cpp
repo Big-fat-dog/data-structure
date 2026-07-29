@@ -1,0 +1,41 @@
+#include<iostream>
+#include<vector>
+#include<stack>
+
+using namespace std;
+class Solution {
+
+public:
+    int evalRPN(vector<string>& tokens) {
+   
+        stack<int> s;
+        for (string& token : tokens) {
+            if (token == "+") {
+                int b = s.top(); s.pop();
+                int a = s.top(); s.pop();
+                s.push(a + b);
+            }
+            else if (token == "-") {
+                int b = s.top(); s.pop();
+                int a = s.top(); s.pop();
+                s.push(a - b);
+            }
+            else if (token == "*") {
+                int b = s.top(); s.pop();
+                int a = s.top(); s.pop();
+                s.push(a * b);
+            }
+            else if (token == "/") {
+                int b = s.top(); s.pop();
+                int a = s.top(); s.pop();
+                s.push(a / b);
+            }
+            else {
+                s.push(stoi(token));
+            }
+        }
+        return s.top();  // 放在循环外
+    
+        
+    }
+};
