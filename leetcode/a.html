@@ -1,0 +1,414 @@
+
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>饥荒生存游戏</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            background: #1a1a2e;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            font-family: 'Courier New', monospace;
+        }
+        #game-container {
+            position: relative;
+            width: 800px;
+            height: 600px;
+        }
+        canvas {
+            border: 3px solid #4a4a6a;
+            background: #2d2d44;
+        }
+        #ui {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            color: white;
+            background: rgba(0,0,0,0.7);
+            padding: 10px;
+            border-radius: 5px;
+        }
+        #toolbar {
+            position: absolute;
+            bottom: 10px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0,0,0,0.7);
+            padding: 10px;
+            border-radius: 5px;
+        }
+        .slot {
+            width: 50px;
+            height: 50px;
+            margin: 5px;
+            border: 2px solid #666;
+            cursor: pointer;
+            display: inline-flex;
+            justify-content: center;
+            align-items: center;
+            color: white;
+            font-size: 12px;
+        }
+        .slot.selected {
+            border-color: yellow;
+            background: rgba(255,255,0,0.2);
+        }
+        #message {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: yellow;
+            font-size: 24px;
+            text-shadow: 2px 2px 4px black;
+            display: none;
+            z-index: 100;
+        }
+    </style>
+</head>
+<body>
+    <div id="game-container">
+        <canvas id="gameCanvas" width="800" height="600"></canvas>
+        <div id="ui">
+            <div>❤️ 生命: <span id="hp">100</span></div>
+            <div>🍖 饥饿: <span id="hunger">100</span></div>
+            <div>🌙 时间: <span id="time">白天</span></div>
+            <div>🔥 工具: <span id="tools">无</span></div>
+        </div>
+        <div id="toolbar">
+            <div class="slot selected" data-tool="hand">✋</div>
+            <div class="slot" data-tool="axe">🪓</div>
+            <div class="slot" data-tool="pickaxe">⛏️</div>
+            <div class="slot" data-tool="wall">🧱</div>
+            <div class="slot" data-tool="fence">🌲</div>
+        </div>
+        <div id="message"></div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+
+        // 游戏状态
+        const gameState = {
+            player: {
+                x: 400,
+                y: 300,
+                width: 30,
+                height: 30,
+                speed: 4,
+                hp: 100,
+                hunger: 100,
+                direction: 1
+            },
+            resources: {
+                wood: 0,
+                stone: 0,
+                food: 0
+            },
+            tools: {
+                selected: 'hand'
+            },
+            map: {},
+            buildings: [],
+            day: 1,
+            timeOfDay: 0, // 0-24小时
+            gameTime: 0
+        };
+
+        // 初始化地图
+        function initMap() {
+            for (let x = 0; x < 800; x += 20) {
+                for (let y = 0; y < 600; y += 20) {
+                    const type = Math.random() < 0.3 ? 'tree' : (Math.random() < 0.2 ? 'rock' : 'grass');
+                    gameState.map[`${x},${y}`] = type;
+                }
+            }
+        }
+
+        // 玩家移动
+        function movePlayer(dx, dy) {
+            const newX = gameState.player.x + dx * gameState.player.speed;
+            const newY = gameState.player.y + dy * gameState.player.speed;
+
+            // 边界检查
+            if (newX < 0 || newX + gameState.player.width > 800 || newY < 0 || newY + gameState.player.height > 600) {
+                return;
+            }
+
+            // 碰撞检测
+            for (let i = 0; i < gameState.buildings.length; i++) {
+                const b = gameState.buildings[i];
+                if (newX < b.x + b.width && newX + gameState.player.width > b.x &&
+                    newY < b.y + b.height && newY + gameState.player.height > b.y) {
+                    return;
+                }
+            }
+
+            gameState.player.x = newX;
+            gameState.player.y = newY;
+        }
+
+        // 采集资源
+        function gatherResource(x, y, tool) {
+            const key = `${x},${y}`;
+            if (!gameState.map[key]) return;
+
+            if (tool === 'axe' && gameState.map[key] === 'tree') {
+                gameState.map[key] = null;
+                gameState.resources.wood += 5;
+                showFloatingText('获得木材', x, y);
+            } else if (tool === 'pickaxe' && gameState.map[key] === 'rock') {
+                gameState.map[key] = null;
+                gameState.resources.stone += 5;
+                showFloatingText('获得石头', x, y);
+            } else if (tool === 'hand' && gameState.map[key] === 'grass') {
+                gameState.map[key] = null;
+                gameState.resources.food += 2;
+                showFloatingText('获得食物', x, y);
+            }
+        }
+
+        // 建造
+        function buildStructure(x, y, tool) {
+            const key = `${x},${y}`;
+            if (!gameState.map[key]) return;
+
+            if (tool === 'wall' && gameState.resources.wood >= 1) {
+                gameState.resources.wood--;
+                gameState.buildings.push({
+                    x: x,
+                    y: y,
+                    width: 20,
+                    height: 20,
+                    type: 'wall'
+                });
+                gameState.map[key] = null;
+                showFloatingText('建造完成', x, y);
+            } else if (tool === 'fence' && gameState.resources.stone >= 1) {
+                gameState.resources.stone--;
+                gameState.buildings.push({
+                    x: x,
+                    y: y,
+                    width: 20,
+                    height: 20,
+                    type: 'fence'
+                });
+                gameState.map[key] = null;
+                showFloatingText('建造完成', x, y);
+            }
+        }
+
+        // 昼夜循环
+        function updateTime() {
+            gameState.gameTime += 0.05;
+            gameState.timeOfDay = (gameState.gameTime % 24);
+
+            let timeText = '';
+            if (gameState.timeOfDay < 6) {
+                timeText = '深夜';
+            } else if (gameState.timeOfDay < 12) {
+                timeText = '白天';
+            } else if (gameState.timeOfDay < 18) {
+                timeText = '黄昏';
+            } else {
+                timeText = '夜晚';
+            }
+
+            document.getElementById('time').textContent = timeText;
+
+            // 饥饿值下降
+            if (gameState.timeOfDay >= 12 && gameState.timeOfDay < 18) {
+                gameState.player.hunger -= 0.5;
+            }
+
+            // 生命值恢复/下降
+            if (gameState.timeOfDay < 6) {
+                gameState.player.hp += 0.2;
+            } else if (gameState.timeOfDay > 18) {
+                gameState.player.hp -= 0.2;
+            }
+
+            // 夜晚伤害
+            if (gameState.timeOfDay > 20) {
+                gameState.player.hp -= 0.1;
+            }
+
+            if (gameState.player.hp <= 0) {
+                gameOver();
+                return;
+            }
+
+            // 饥饿值
+            if (gameState.player.hunger <= 0) {
+                gameState.player.hp -= 0.5;
+            }
+
+            // 更新UI
+            document.getElementById('hp').textContent = Math.floor(gameState.player.hp);
+            document.getElementById('hunger').textContent = Math.floor(gameState.player.hunger);
+            document.getElementById('tools').textContent = gameState.tools.selected;
+
+            // 昼夜背景变化
+            updateDayNightCycle();
+        }
+
+        // 昼夜背景
+        function updateDayNightCycle() {
+            const timeOfDay = gameState.timeOfDay;
+            if (timeOfDay >= 6 && timeOfDay < 18) {
+                document.getElementById('gameCanvas').style.background = '#4a5a4a';
+            } else {
+                document.getElementById('gameCanvas').style.background = '#1a1a2a';
+            }
+        }
+
+        // 游戏结束
+        function gameOver() {
+            showMessage('你饿死了...', 500, 300);
+            gameState.player.hp = 0;
+        }
+
+        // 显示消息
+        function showMessage(text, x, y) {
+            const msg = document.getElementById('message');
+            msg.textContent = text;
+            msg.style.left = x + 'px';
+            msg.style.top = y + 'px';
+            msg.style.display = 'block';
+            setTimeout(() => {
+                msg.style.display = 'none';
+            }, 2000);
+        }
+
+        // 显示浮动文字
+        function showFloatingText(text, x, y) {
+            showMessage(text, x, y);
+        }
+
+        // 绘制游戏
+        function draw() {
+            // 清除画布
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // 绘制地图
+            for (const key in gameState.map) {
+                const [x, y] = key.split(',').map(Number);
+                const type = gameState.map[key];
+                drawTile(x, y, type);
+            }
+
+            // 绘制建筑
+            for (const building of gameState.buildings) {
+                drawBuilding(building);
+            }
+
+            // 绘制玩家
+            drawPlayer();
+        }
+
+        // 绘制地形
+        function drawTile(x, y, type) {
+            if (type === 'tree') {
+                ctx.fillStyle = '#2d5a2d';
+                ctx.fillRect(x, y, 20, 20);
+                ctx.fillStyle = '#4a7a4a';
+                ctx.fillRect(x + 5, y - 10, 10, 10);
+            } else if (type === 'rock') {
+                ctx.fillStyle = '#666';
+                ctx.fillRect(x, y, 20, 20);
+            } else if (type === 'grass') {
+                ctx.fillStyle = '#3a6a3a';
+                ctx.fillRect(x, y, 20, 20);
+            }
+        }
+
+        // 绘制建筑
+        function drawBuilding(b) {
+            if (b.type === 'wall') {
+                ctx.fillStyle = '#5a5a5a';
+                ctx.fillRect(b.x, b.y, b.width, b.height);
+            } else if (b.type === 'fence') {
+                ctx.fillStyle = '#3a6a3a';
+                ctx.fillRect(b.x, b.y, b.width, b.height);
+            }
+        }
+
+        // 绘制玩家
+        function drawPlayer() {
+            const p = gameState.player;
+            ctx.fillStyle = '#e6b800'; // 衣服颜色
+            ctx.fillRect(p.x, p.y, p.width, p.height);
+
+            // 画眼睛
+            ctx.fillStyle = 'white';
+            ctx.fillRect(p.x + 5, p.y + 5, 8, 8);
+            ctx.fillRect(p.x + 17, p.y + 5, 8, 8);
+
+            // 画方向
+            if (p.direction === 1) {
+                ctx.fillStyle = '#333';
+                ctx.fillRect(p.x + 15, p.y + 15, 15, 5);
+            }
+        }
+
+        // 游戏循环
+        function gameLoop() {
+            draw();
+            updateTime();
+            requestAnimationFrame(gameLoop);
+        }
+
+        // 输入处理
+        document.addEventListener('keydown', (e) => {
+            switch(e.key) {
+                case 'ArrowUp': movePlayer(0, -1); break;
+                case 'ArrowDown': movePlayer(0, 1); break;
+                case 'ArrowLeft': movePlayer(-1, 0); break;
+                case 'ArrowRight': movePlayer(1, 0); break;
+                case ' ':
+                case 'w':
+                case 's':
+                case 'a':
+                case 'd':
+                    // 默认移动已处理
+                    break;
+            }
+        });
+
+        // 工具选择
+        document.querySelectorAll('.slot').forEach(slot => {
+            slot.addEventListener('click', () => {
+                document.querySelectorAll('.slot').forEach(s => s.classList.remove('selected'));
+                slot.classList.add('selected');
+                gameState.tools.selected = slot.dataset.tool;
+            });
+        });
+
+        // 右键建造/采集
+        canvas.addEventListener('contextmenu', (e) => {
+            e.preventDefault();
+            const rect = canvas.getBoundingClientRect();
+            const x = Math.floor(e.clientX - rect.left) / 20 * 20;
+            const y = Math.floor(e.clientY - rect.top) / 20 * 20;
+
+            if (gameState.tools.selected === 'axe' || gameState.tools.selected === 'pickaxe' || gameState.tools.selected === 'hand') {
+                gatherResource(x, y, gameState.tools.selected);
+            } else if (gameState.tools.selected === 'wall' || gameState.tools.selected === 'fence') {
+                buildStructure(x, y, gameState.tools.selected);
+            }
+        });
+
+        // 初始化
+        initMap();
+        gameLoop();
+    </script>
+</body
