@@ -242,32 +242,44 @@ private:
     // --------------------------------------------------------
     // 四个核心操作
     // --------------------------------------------------------
+
+    // SubBytes：字节替换
+    // 对 state 中每个字节查 S 盒，做非线性替换
+    // 这是 AES 里唯一的非线性操作，抵抗线性和差分分析
     static void subBytes(uint8_t state[4][4])
     {
         using namespace tables;
-        for (int i = 0; i < 4; ++i)
-            for (int j = 0; j < 4; ++j)
-                state[i][j] = SBOX[state[i][j]];
+        for (int i = 0; i < 4; ++i)              // 遍历 4 行
+            for (int j = 0; j < 4; ++j)          // 遍历 4 列
+                state[i][j] = SBOX[state[i][j]]; // 用当前字节做索引查 S 盒
     }
 
+    // InvSubBytes：逆字节替换
+    // 解密时用，查逆 S 盒，把字节还原
     static void invSubBytes(uint8_t state[4][4])
     {
         using namespace tables;
         for (int i = 0; i < 4; ++i)
             for (int j = 0; j < 4; ++j)
-                state[i][j] = INV_SBOX[state[i][j]];
+                state[i][j] = INV_SBOX[state[i][j]]; // 查逆 S 盒
     }
 
+    // ShiftRows：行移位
+    // 第 0 行不动，第 1 行左移 1，第 2 行左移 2，第 3 行左移 3
+    // 作用：让不同列之间的字节互相混合，增强扩散
     static void shiftRows(uint8_t state[4][4])
     {
-        // 第 1 行左移 1
+        // 第 1 行左移 1 字节
+        // [a b c d] → [b c d a]
         uint8_t t = state[1][0];
         state[1][0] = state[1][1];
         state[1][1] = state[1][2];
         state[1][2] = state[1][3];
         state[1][3] = t;
 
-        // 第 2 行左移 2
+        // 第 2 行左移 2 字节
+        // [a b c d] → [c d a b]
+        // 等价于交换前两个和后两个
         t = state[2][0];
         state[2][0] = state[2][2];
         state[2][2] = t;
@@ -275,7 +287,8 @@ private:
         state[2][1] = state[2][3];
         state[2][3] = t;
 
-        // 第 3 行左移 3（等价于右移 1）
+        // 第 3 行左移 3 字节，等价于右移 1 字节
+        // [a b c d] → [d a b c]
         t = state[3][3];
         state[3][3] = state[3][2];
         state[3][2] = state[3][1];
@@ -283,16 +296,22 @@ private:
         state[3][0] = t;
     }
 
+    // InvShiftRows：逆行移位
+    // 解密时用，和 ShiftRows 方向相反
+    // 第 0 行不动，第 1 行右移 1，第 2 行右移 2，第 3 行右移 3
     static void invShiftRows(uint8_t state[4][4])
     {
-        // 第 1 行右移 1
+        // 第 1 行右移 1 字节
+        // [a b c d] → [d a b c]
         uint8_t t = state[1][3];
         state[1][3] = state[1][2];
         state[1][2] = state[1][1];
         state[1][1] = state[1][0];
         state[1][0] = t;
 
-        // 第 2 行右移 2
+        // 第 2 行右移 2 字节
+        // [a b c d] → [c d a b]
+        // 和加密时的交换一样，因为交换两次就还原了
         t = state[2][0];
         state[2][0] = state[2][2];
         state[2][2] = t;
@@ -300,7 +319,8 @@ private:
         state[2][1] = state[2][3];
         state[2][3] = t;
 
-        // 第 3 行右移 3（等价于左移 1）
+        // 第 3 行右移 3 字节，等价于左移 1 字节
+        // [a b c d] → [b c d a]
         t = state[3][0];
         state[3][0] = state[3][1];
         state[3][1] = state[3][2];
@@ -308,22 +328,46 @@ private:
         state[3][3] = t;
     }
 
+    // MixColumns：列混合
+    // 对每一列做矩阵乘法，矩阵是固定的：
+    //   [02 03 01 01]
+    //   [01 02 03 01]
+    //   [01 01 02 03]
+    //   [03 01 01 02]
+    // 乘法在 GF(2^8) 上进行，mul2 = 乘 2，mul3 = 乘 3
+    // 作用：让一列内的 4 个字节互相影响，增强扩散
     static void mixColumns(uint8_t state[4][4])
     {
-        for (int c = 0; c < 4; ++c)
+        for (int c = 0; c < 4; ++c) // 遍历每一列
         {
+            // 取出这一列的 4 个字节
             uint8_t a0 = state[0][c];
             uint8_t a1 = state[1][c];
             uint8_t a2 = state[2][c];
             uint8_t a3 = state[3][c];
 
+            // 矩阵乘法的第 0 行：02*a0 + 03*a1 + 01*a2 + 01*a3
+            // GF(2^8) 里加法就是异或，01*a = a
             state[0][c] = mul2(a0) ^ mul3(a1) ^ a2 ^ a3;
+
+            // 第 1 行：01*a0 + 02*a1 + 03*a2 + 01*a3
             state[1][c] = a0 ^ mul2(a1) ^ mul3(a2) ^ a3;
+
+            // 第 2 行：01*a0 + 01*a1 + 02*a2 + 03*a3
             state[2][c] = a0 ^ a1 ^ mul2(a2) ^ mul3(a3);
+
+            // 第 3 行：03*a0 + 01*a1 + 01*a2 + 02*a3
             state[3][c] = mul3(a0) ^ a1 ^ a2 ^ mul2(a3);
         }
     }
 
+    // InvMixColumns：逆列混合
+    // 解密时用，矩阵是加密矩阵的逆：
+    //   [0E 0B 0D 09]
+    //   [09 0E 0B 0D]
+    //   [0D 09 0E 0B]
+    //   [0B 0D 09 0E]
+    // 每个系数都要在 GF(2^8) 上乘，所以用通用的 gf_mul
     static void invMixColumns(uint8_t state[4][4])
     {
         for (int c = 0; c < 4; ++c)
@@ -333,19 +377,31 @@ private:
             uint8_t a2 = state[2][c];
             uint8_t a3 = state[3][c];
 
+            // 第 0 行：0E*a0 + 0B*a1 + 0D*a2 + 09*a3
             state[0][c] = gf_mul(a0, 0x0E) ^ gf_mul(a1, 0x0B) ^ gf_mul(a2, 0x0D) ^ gf_mul(a3, 0x09);
+
+            // 第 1 行：09*a0 + 0E*a1 + 0B*a2 + 0D*a3
             state[1][c] = gf_mul(a0, 0x09) ^ gf_mul(a1, 0x0E) ^ gf_mul(a2, 0x0B) ^ gf_mul(a3, 0x0D);
+
+            // 第 2 行：0D*a0 + 09*a1 + 0E*a2 + 0B*a3
             state[2][c] = gf_mul(a0, 0x0D) ^ gf_mul(a1, 0x09) ^ gf_mul(a2, 0x0E) ^ gf_mul(a3, 0x0B);
+
+            // 第 3 行：0B*a0 + 0D*a1 + 09*a2 + 0E*a3
             state[3][c] = gf_mul(a0, 0x0B) ^ gf_mul(a1, 0x0D) ^ gf_mul(a2, 0x09) ^ gf_mul(a3, 0x0E);
         }
     }
 
+    // AddRoundKey：轮密钥加
+    // 把当前 state 和本轮轮密钥逐字节异或
+    // 这是唯一用到密钥的步骤，其他三步都是固定的
     void addRoundKey(uint8_t state[4][4], int round) const
     {
-        for (int i = 0; i < 4; ++i)
+        for (int i = 0; i < 4; ++i) // 行
         {
-            for (int j = 0; j < 4; ++j)
+            for (int j = 0; j < 4; ++j) // 列
             {
+                // roundKeys_ 是按列优先存的：
+                // roundKeys_[round][4*j + i] 对应 state[i][j]
                 state[i][j] ^= roundKeys_[round][4 * j + i];
             }
         }
