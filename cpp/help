@@ -1,0 +1,82 @@
+#include <cstdint>
+
+#define NOINLINE __attribute__((noinline))
+
+class Animal {
+public:
+    int age;
+
+    Animal(int a) : age(a) {}
+
+    virtual void speak() = 0;
+
+    virtual int getAge() {
+        return age;
+    }
+
+    virtual ~Animal() {}
+};
+
+class Flyable {
+public:
+    int speed;
+
+    Flyable(int s) : speed(s) {}
+
+    virtual void fly() = 0;
+
+    virtual ~Flyable() {}
+};
+
+class Dog : public Animal, public Flyable {
+public:
+    int weight;
+
+    Dog(int a, int s, int w)
+        : Animal(a), Flyable(s), weight(w) {}
+
+    NOINLINE void speak() override {
+        age += 1;
+    }
+
+    NOINLINE int getAge() override {
+        return age;
+    }
+
+    NOINLINE void fly() override {
+        speed += 1;
+    }
+
+    ~Dog() override {}
+};
+
+extern "C" {
+
+NOINLINE int test_cast(Animal* p) {
+    Dog* d = dynamic_cast<Dog*>(p);
+
+    if (d == nullptr) {
+        return -1;
+    }
+
+    return d->weight;
+}
+
+NOINLINE int test_virtual(Animal* p) {
+    p->speak();
+    return p->getAge();
+}
+
+NOINLINE int test_multi() {
+    Dog dog(3, 100, 20);
+
+    Animal* a = &dog;
+    Flyable* f = &dog;
+
+    test_virtual(a);
+    f->fly();
+
+    return test_cast(a);
+}
+
+}
