@@ -91,4 +91,6 @@ int main(){
     Animal* p = &d;
 
     test_cast(p);
+    test_virtual(p);
+    test_multi();
 }

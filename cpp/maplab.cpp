@@ -3,7 +3,6 @@
 #include <algorithm>
 int main()
 {
-#include <map>
 
     std::map<std::string, int> scores;
     scores["alice"] = 95; // 插入/更新
